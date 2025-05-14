@@ -187,6 +187,137 @@ def padded_collate(
     return output_dict
 
 
+# TODO: I have to verify this implementation, I am not even sure if this is what we want
+# Do we actually need to pad the encoder input?
+# We will come back to it based on how the model is actually implemented
+def aura_collate(
+    batch: List[Dict[str, Any]],
+    padding_idx: int = 0,
+    ignore_idx: int = CROSS_ENTROPY_IGNORE_IDX,
+    pad_to_multiple_of: int = 1,
+) -> Dict[str, torch.Tensor]:
+    """Collate function for AURA dataset that pads sequences to the longest sequence length in the batch.
+    
+    Args:
+        batch (List[Dict[str, Any]]): A list of dictionaries containing samples with decoder_input_ids, 
+            decoder_labels, decoder_attention_mask, encoder_input_ids, and encoder_attention_mask.
+        padding_idx (int): Padding index for input ids and attention masks. Defaults to 0.
+        ignore_idx (int): Padding index for labels. Defaults to -100.
+        pad_to_multiple_of (int): If > 1, pad the sequence to a multiple of this number.
+            This is useful for proper sharding with e.g. SequenceParallel.
+            
+    Returns:
+        Dict[str, torch.Tensor]: Collated and padded tensors for encoder-decoder model.
+        
+    Example:
+        >>> samples = [
+        >>>     {
+        >>>         'decoder_input_ids': [1, 2, 3],
+        >>>         'decoder_labels': [4, 5, 6],
+        >>>         'decoder_attention_mask': [1, 1, 1],
+        >>>         'encoder_input_ids': [7, 8],
+        >>>         'encoder_attention_mask': [1, 1]
+        >>>     },
+        >>>     {
+        >>>         'decoder_input_ids': [9],
+        >>>         'decoder_labels': [10],
+        >>>         'decoder_attention_mask': [1],
+        >>>         'encoder_input_ids': [11, 12, 13],
+        >>>         'encoder_attention_mask': [1, 1, 1]
+        >>>     }
+        >>> ]
+        >>> collated = aura_collate(samples)
+        >>> # The collated output will look like:
+        >>> # {
+        >>> #     'decoder_input_ids': tensor([[ 1,  2,  3],
+        >>> #                                 [ 9,  0,  0]]),
+        >>> #     'decoder_labels': tensor([[ 4,  5,  6],
+        >>> #                              [10, -100, -100]]),
+        >>> #     'decoder_attention_mask': tensor([[1, 1, 1],
+        >>> #                                      [1, 0, 0]]),
+        >>> #     'encoder_input_ids': tensor([[ 7,  8,  0],
+        >>> #                                 [11, 12, 13]]),
+        >>> #     'encoder_attention_mask': tensor([[1, 1, 0],
+        >>> #                                      [1, 1, 1]])
+        >>> # }
+        >>> # Note: If pad_to_multiple_of > 1, additional padding may be added
+        >>> # to make sequence lengths a multiple of pad_to_multiple_of.
+    """
+    # Pad decoder sequences
+    decoder_input_ids = pad_sequence(
+        [torch.tensor(x["decoder_input_ids"]) for x in batch],
+        batch_first=True,
+        padding_value=padding_idx,
+    )
+    
+    decoder_labels = pad_sequence(
+        [torch.tensor(x["decoder_labels"]) for x in batch],
+        batch_first=True,
+        padding_value=ignore_idx,
+    )
+    
+    decoder_attention_mask = pad_sequence(
+        [torch.tensor(x["decoder_attention_mask"]) for x in batch],
+        batch_first=True,
+        padding_value=0,  # Attention mask is padded with 0
+    )
+    
+    # Pad encoder sequences
+    encoder_input_ids = pad_sequence(
+        [torch.tensor(x["encoder_input_ids"]) for x in batch],
+        batch_first=True,
+        padding_value=padding_idx,
+    )
+    
+    encoder_attention_mask = pad_sequence(
+        [torch.tensor(x["encoder_attention_mask"]) for x in batch],
+        batch_first=True,
+        padding_value=0,  # Attention mask is padded with 0
+    )
+    
+    # Apply padding to multiple of pad_to_multiple_of if needed
+    if pad_to_multiple_of > 1:
+        for tensor_name, tensor in [
+            ("decoder_input_ids", decoder_input_ids),
+            ("decoder_labels", decoder_labels),
+            ("decoder_attention_mask", decoder_attention_mask),
+            ("encoder_input_ids", encoder_input_ids),
+            ("encoder_attention_mask", encoder_attention_mask),
+        ]:
+            seq_len = tensor.shape[1]
+            remainder = seq_len % pad_to_multiple_of
+            if remainder != 0:
+                padding_size = pad_to_multiple_of - remainder
+                padding_value = ignore_idx if tensor_name == "decoder_labels" else padding_idx
+                if tensor_name.endswith("attention_mask"):
+                    padding_value = 0
+                
+                # Pad the tensor
+                tensor = F.pad(
+                    tensor,
+                    (0, padding_size),
+                    value=padding_value,
+                )
+                
+                # Update the variable
+                if tensor_name == "decoder_input_ids":
+                    decoder_input_ids = tensor
+                elif tensor_name == "decoder_labels":
+                    decoder_labels = tensor
+                elif tensor_name == "decoder_attention_mask":
+                    decoder_attention_mask = tensor
+                elif tensor_name == "encoder_input_ids":
+                    encoder_input_ids = tensor
+                elif tensor_name == "encoder_attention_mask":
+                    encoder_attention_mask = tensor
+    
+    return {
+        "decoder_input_ids": decoder_input_ids,
+        "decoder_labels": decoder_labels,
+        "decoder_attention_mask": decoder_attention_mask,
+        "encoder_input_ids": encoder_input_ids,
+        "encoder_attention_mask": encoder_attention_mask,
+    }
 def padded_collate_sft(
     batch: List[Dict[str, Any]],
     padding_idx: int = 0,

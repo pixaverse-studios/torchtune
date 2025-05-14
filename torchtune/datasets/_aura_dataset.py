@@ -111,10 +111,6 @@ class AuraDataset(Dataset):
         encoder_input_ids = encoder_inputs['input_ids'].squeeze(0)
         encoder_attention_mask = encoder_inputs['attention_mask'].squeeze(0) 
         
-        decoder_input_ids = self.pad_sequence(decoder_input_ids, self.max_length, value=self.pad_token_id)
-        decoder_attention_mask = self.pad_sequence(decoder_attention_mask, self.max_length, value=0)
-        decoder_labels = self.pad_sequence(decoder_labels, self.max_length, value=self.ignore_index)
-
         return {
             'decoder_input_ids': list(decoder_input_ids),
             'decoder_labels': list(decoder_labels),
@@ -122,4 +118,8 @@ class AuraDataset(Dataset):
             'encoder_input_ids': list(encoder_input_ids),
             'encoder_attention_mask': list(encoder_attention_mask)
         }
+
+
+
+# TODO: We have to test this dataset once
  
