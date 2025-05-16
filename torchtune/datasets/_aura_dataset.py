@@ -29,7 +29,7 @@ class AuraDataset(Dataset):
         self.decoder_tokenizer = decoder_tokenizer
         self.encoder_tokenizer = encoder_tokenizer
 
-        self.pad_token_id = decoder_tokenizer.pad_token_id   
+        self.pad_token_id = decoder_tokenizer.pad_id   
         self.encoder_tokenizer = encoder_tokenizer
    
         self.speech_generation_start_id = decoder_tokenizer.convert_tokens_to_ids('<|SPEECH_GENERATION_START|>')
@@ -43,7 +43,7 @@ class AuraDataset(Dataset):
  
         self.max_length = 2048
         self.ignore_index = -100  
-        self.encoder_max_length = 1024
+        self.encoder_max_length = 512
     def __len__(self):
         return self.length
 
@@ -82,24 +82,29 @@ class AuraDataset(Dataset):
             {"role": "user", "content": f"Convert the text to speech:<|TEXT_UNDERSTANDING_START|>{transcript_text}<|TEXT_UNDERSTANDING_END|>"},
             {"role": "assistant", "content": f"<|SPEECH_GENERATION_START|>{audio_codes_string}<|SPEECH_GENERATION_END|>"}
         ]
-        ids = self.decoder_tokenizer.apply_chat_template(chat, tokenize=True)
+        ids = self.decoder_tokenizer.apply_chat_template(chat, tokenize=True, return_tensors="pt")
 
-        decoder_input_ids = torch.tensor(ids, dtype=torch.long)
-        decoder_labels = torch.full_like(decoder_input_ids, self.ignore_index)
+        # Remove batch dimension if present
+        if ids.dim() > 1:
+            ids = ids.squeeze(0)
+            
+        # Convert to tensor if not already
+        if not isinstance(ids, torch.Tensor):
+            ids = torch.tensor(ids, dtype=torch.long)
 
+        decoder_labels = torch.full_like(ids, self.ignore_index)
         try:
-            speech_gen_idx_in_input = (input_ids == self.speech_generation_start_id).nonzero(as_tuple=True)[0].item()
-            decoder_labels[speech_gen_idx_in_input:] = input_ids[speech_gen_idx_in_input:]
+            speech_gen_idx_in_input = (ids == self.speech_generation_start_id).nonzero(as_tuple=True)[0].item()
+            decoder_labels[speech_gen_idx_in_input:] = ids[speech_gen_idx_in_input:]
         except Exception as e:
             print(f"maybe Error in speech_gen_idx_in_input: {e}")
             # speech_gen_idx_in_input = len(input_ids) - 1
-            decoder_labels = input_ids 
+            decoder_labels = ids 
 
-        decoder_attention_mask = (input_ids != self.pad_token_id).long()
-        decoder_labels[input_ids == self.pad_token_id] = self.ignore_index
+        decoder_attention_mask = (ids != self.pad_token_id).long()
+        decoder_labels[ids == self.pad_token_id] = self.ignore_index
 
-
-        encoder_inputs = self.encoder_tokenizer(
+        encoder_inputs = self.encoder_tokenizer.encode(
             audio_description_text,
             max_length=self.encoder_max_length,
             padding="max_length",
@@ -112,14 +117,19 @@ class AuraDataset(Dataset):
         encoder_attention_mask = encoder_inputs['attention_mask'].squeeze(0) 
         
         return {
-            'decoder_input_ids': list(decoder_input_ids),
-            'decoder_labels': list(decoder_labels),
-            'decoder_attention_mask': list(decoder_attention_mask),
-            'encoder_input_ids': list(encoder_input_ids),
-            'encoder_attention_mask': list(encoder_attention_mask)
+            'decoder_input_ids': ids,
+            'decoder_labels': decoder_labels,
+            'decoder_attention_mask': decoder_attention_mask,
+            'encoder_input_ids': encoder_input_ids,
+            'encoder_attention_mask': encoder_attention_mask
         }
 
 
 
 # TODO: We have to test this dataset once
- 
+if __name__ == "__main__":
+    decoder_tokenizer = AuraDecoderTokenizer()
+    encoder_tokenizer = AuraEncoderTokenizer()
+    dataset = AuraDataset(decoder_tokenizer, encoder_tokenizer, data_path="/workspace/torchtune_test_dataset/")
+    print(dataset[0])
+

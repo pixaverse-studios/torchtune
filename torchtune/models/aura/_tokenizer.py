@@ -40,22 +40,21 @@ class AuraDecoderTokenizer():
         
         self.truncation_type = truncation_type
 
-    def apply_chat_template(self, chat: List[Dict[str, str]], tokenize: bool = True) -> List[int]:
+    def apply_chat_template(self, chat: List[Dict[str, str]], **kwargs) -> torch.Tensor:
         """
         Apply the chat template to a list of messages and optionally tokenize the result.
         
         Args:
             chat (List[Dict[str, str]]): A list of message dictionaries with 'role' and 'content' keys.
-            tokenize (bool): Whether to tokenize the result. Default is True.
+            **kwargs: Additional arguments to pass to the tokenizer.
             
         Returns:
-            List[int] or str: The tokenized result as a list of token IDs if tokenize=True,
-                             otherwise the formatted chat string.
+            torch.Tensor: The tokenized result as a tensor of token IDs.
         """
         # Use the underlying tokenizer's apply_chat_template method
         return self.tokenizer.apply_chat_template(
             chat, 
-            tokenize=tokenize
+            **kwargs
         )
     
     def convert_tokens_to_ids(self, tokens):
@@ -100,7 +99,7 @@ class AuraEncoderTokenizer:
     def __init__(
         self,
         path: str = "distilbert-base-uncased",
-        max_seq_len: Optional[int] = None,
+        max_seq_len: Optional[int] = 512,
         truncation_type: str = "right",
     ):
         """
@@ -126,7 +125,6 @@ class AuraEncoderTokenizer:
         print(f"Encoder tokenizer vocabulary size: {original_vocab_size}")
         
         # Store special token IDs and configuration
-        self.max_seq_len = max_seq_len
         self.truncation_type = truncation_type
         
         # Set up token IDs
@@ -148,10 +146,6 @@ class AuraEncoderTokenizer:
         """
         encoding = self.tokenizer(
             text,
-            padding="max_length" if self.max_seq_len else True,
-            truncation=True,
-            max_length=self.max_seq_len,
-            return_tensors="pt",
             **kwargs
         )
         return encoding
